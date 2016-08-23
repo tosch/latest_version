@@ -6,40 +6,15 @@ require "octokit"
 require "pry-byebug" if ENV['RACK_ENV'] == "development"
 
 module LatestVersion
-  class User
-    attr_reader :auth
-
-    def initialize(auth)
-      @auth = auth
-    end
-
-    def token
-      auth.dig("credentials", "token")
-    end
-  end
 
   class App < Sinatra::Base
     enable :sessions
 
     get "/" do
       if session['user']
-        Octokit.auto_paginate = true
-
-        github = Octokit::Client.new(access_token: session["user"].token)
-        data = github.repos.map do |repo|
-                 begin
-                   release = repo.rels[:releases].get(uri: {id: "latest"}).data
-                   {repository: repo.full_name, latest_version: release.name, tag: release.tag_name, html_url: release.html_url}
-                 rescue Octokit::NotFound
-                   next
-                 end
-               end
-
-        data.reject!(&:nil?)
-
-        haml :index, locals: {data: data}
+        haml :index, locals: {repositories: GitHubRepository.all_for(session["user"])}
       else
-        redirect "/auth/github"
+        redirect to("/auth/github")
       end
     end
 
@@ -50,13 +25,13 @@ module LatestVersion
     get "/auth/github/callback" do
       session['user'] = User.new(request.env["omniauth.auth"])
 
-      redirect "/"
+      redirect to("/")
     end
 
     get "/logout" do
       session["user"] = nil
 
-      redirect "/"
+      redirect to("/")
     end
   end
 end

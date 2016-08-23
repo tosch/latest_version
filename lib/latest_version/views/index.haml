@@ -11,9 +11,10 @@
           %th Latest Release
           %th Tag
       %tbody
-        - data.each do |release|
+        - repositories.each do |repository|
+          - next unless repository.released?
           %tr
-            %td= release[:repository]
+            %td= repository.full_name
             %td
-              %a{href: release[:html_url]}= release[:latest_version]
-            %td= release[:tag]
+              %a{href: repository.latest_release.html_url}= repository.latest_release.name
+            %td= repository.latest_release.tag
