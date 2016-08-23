@@ -1,0 +1,19 @@
+!!! 5
+%html
+  %head
+    %title Latest Releases
+  %body
+    %h1 Latest Releases
+    %table
+      %thead
+        %tr
+          %th Repository
+          %th Latest Release
+          %th Tag
+      %tbody
+        - data.each do |release|
+          %tr
+            %td= release[:repository]
+            %td
+              %a{href: release[:html_url]}= release[:latest_version]
+            %td= release[:tag]
