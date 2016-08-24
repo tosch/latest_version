@@ -3,18 +3,47 @@
   %head
     %title Latest Releases
   %body
+    %h6&= "Welcome, #{current_user.username}!"
     %h1 Latest Releases
+    %form{method: "POST", action: uri("/refresh")}
+      %button{type: "submit"} Refresh
+    %form{method: "POST", action: uri("/update_user")}
+      %label{for: "slackhook_url"} Slack Hook URL
+      %input{type: "text", name: "slackhook_url", value: current_user.slackhook_url}
+      %button{type: "submit"} Save
     %table
       %thead
         %tr
           %th Repository
           %th Latest Release
           %th Tag
+          %th Actions
       %tbody
         - repositories.each do |repository|
-          - next unless repository.released?
+          - latest_release = repository.latest_release
           %tr
-            %td= repository.full_name
             %td
-              %a{href: repository.latest_release.html_url}= repository.latest_release.name
-            %td= repository.latest_release.tag
+              %a{href: repository.html_url}= repository.full_name
+            - if latest_release
+              %td
+                %a{href: latest_release.html_url, title: latest_release.description}= latest_release.name
+              %td
+                = latest_release.tag_name
+            - else
+              %td
+              %td
+            %td
+              %form{method: "POST", action: uri("/register_github_event")}
+                %input{type: "hidden", name: "repository_id", value: repository.id}
+                %input{type: "checkbox", name: "send_email", value: "1", checked: repository.webhook_send_mail}
+                %label{for: "send_email"} Send Mail on new release
+                %input{type: "checkbox", name: "send_slack", value: "1", checked: repository.webhook_send_slack}
+                %label{for: "send_slack"} Push message to Slack on new release
+                - if repository.registered_github_event?
+                  %input{type: "checkbox", name: "unregister_github_event", value: "1"}
+                  %label{for: "unregister_github_event"} Unregister GitHub event
+                %button{type: "submit"}
+                  - if repository.registered_github_event?
+                    Save
+                  - else
+                    Register GitHub event

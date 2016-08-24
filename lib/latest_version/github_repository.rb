@@ -1,45 +1,87 @@
 module LatestVersion
-  class GitHubRepository
-    def self.all_for(user)
+  class GitHubRepository < Sequel::Model(:repositories)
+    many_to_one :user, class: :User, class_namespace: :LatestVersion, key: :user_id
+    one_to_many :releases, class: :GitHubRelease, class_namespace: :LatestVersion, key: :repository_id
+
+    def self.fetch_all_from_github_for(user)
       Octokit.auto_paginate = true
 
-      github_client_for(user).repos.map { |repo_data| new(repo_data) }
+      DB.transaction do
+        user.github_client.repos.map { |repo_data| find_or_create_from_github(repo_data, user) }
+      end
     end
 
-    attr_reader :data
+    def self.find_or_create_from_github(data, user)
+      existing_repository = user.repositories_dataset.where(uid: data.id).first
 
-    def initialize(data)
-      @data = data
+      if existing_repository
+        existing_repository.update_latest_release
+
+        existing_repository
+      else
+        create({
+          uid: data.id,
+          full_name: data.full_name,
+          url: data.url,
+          html_url: data.html_url,
+          releases_url: data.releases_url,
+          user_id: user.id
+        })
+      end
     end
 
-    def full_name
-      data.full_name
+    def after_create
+      super
+
+      update_latest_release
+    end
+
+    def update_latest_release
+      release = GitHubRelease.new_latest_release_for(self)
+
+      add_release(release) if release
     end
 
     def released?
-      !!latest_release_data
+      !releases_dataset.empty?
     end
 
     def latest_release
-      @latest_release ||= GitHubRelease.new(latest_release_data) if released?
+      releases_dataset.order(:created_at).last
     end
 
-    def to_h
-      {full_name: full_name, latest_release: latest_release.try(:to_h)}
+    def register_github_event(base_path)
+      self.webhook_secret = SecureRandom.hex(20)
+
+      data = user.github_client.create_hook(full_name,
+                                            "web",
+                                            {url: github_event_url(base_path), content_type: "json", secret: webhook_secret},
+                                            {events: ["release"], active: true})
+
+      self.webhook_uid = data.id
+
+      save
+    end
+
+    def unregister_github_event
+      return unless registered_github_event?
+
+      hook = user.github_client.hook(full_name, webhook_uid)
+    rescue Octokit::NotFound
+    else
+      user.github_client.delete(hook.url)
+    ensure
+      update(webhook_uid: nil, webhook_secret: nil)
+    end
+
+    def registered_github_event?
+      webhook_uid && webhook_secret
     end
 
     private
 
-    def self.github_client_for(user)
-      Octokit::Client.new(access_token: user.token)
-    end
-
-    def latest_release_data
-      return @latest_release_data unless @latest_release_data.nil?
-
-      @latest_release_data = data.rels[:releases].get(uri: {id: "latest"}).data
-    rescue Octokit::NotFound
-      @latest_release_data = false
+    def github_event_url(base_path)
+      base_path + "github_event/#{user.id}/#{id}"
     end
   end
 end
